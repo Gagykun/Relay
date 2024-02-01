@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
+  <head>
     <meta charset="UTF-8" />
     <title>Relay - Get connected</title>
     <link rel="stylesheet" href="/static/style.css" />
@@ -14,60 +13,62 @@
       <meta http-equiv="refresh" content="0.0;url=nojavascript.html" />
     </noscript>
     <script>
-        function toggleMode() {
-            var contextSubtitle = document.getElementById("contextsubtitle");
-            var toggleLink = document.getElementById("toggleLink");
-            var form = document.getElementsByClassName("log-in")[0];
-            if (contextSubtitle.textContent === "Welcome back!") {
-                contextSubtitle.textContent =
-                    "Glad you're here, let's get started shall we?";
-                toggleLink.textContent = "Been here before? Login.";
-                var emailDiv = document.createElement("div");
-                emailDiv.className = "floating-label";
-                emailDiv.innerHTML = `
-                    <input placeholder="Email" type="email" name="email" id="email" autocomplete="off" required />
-                    <label for="email">Email:</label>
-                    <div class="icon">
-                        <!-- You can add an SVG icon here -->
-                    </div>
-                `;
-                form.insertBefore(emailDiv, form.children[2]);
-            } else {
-                contextSubtitle.textContent = "Welcome back!";
-                toggleLink.textContent = "New here? Make an account.";
-                var emailDiv = document.getElementById("email").parentNode;
-                form.removeChild(emailDiv);
-            }
+      function toggleMode() {
+        var contextSubtitle = document.getElementById("contextsubtitle");
+        var toggleLink = document.getElementById("toggleLink");
+        var form = document.getElementsByClassName("log-in")[0];
+        if (contextSubtitle.textContent === "Welcome back!") {
+          contextSubtitle.textContent =
+            "Glad you're here, let's get started shall we?";
+          toggleLink.textContent = "Been here before? Login.";
+          form.action = "/register";
+          var emailDiv = document.createElement("div");
+          emailDiv.className = "floating-label";
+          emailDiv.innerHTML = `
+    <input placeholder="Email" type="email" name="email" id="email" autocomplete="off" required />
+    <label for="email">Email:</label>
+    <div class="icon">
+        <!-- You can add an SVG icon here -->
+    </div>
+`;
+          form.insertBefore(emailDiv, form.children[2]);
+        } else {
+          contextSubtitle.textContent = "Welcome back!";
+          toggleLink.textContent = "New here? Make an account.";
+          form.action = "/login";
+          var emailDiv = document.getElementById("email").parentNode;
+          form.removeChild(emailDiv);
         }
+      }
     </script>
-</head>
+  </head>
 
-<body>
+  <body>
     <div class="session">
-        <div class="left">
-            <!-- Your SVG content goes here -->
+      <div class="left">
+        <!-- Your SVG content goes here -->
+      </div>
+      <form action="/login" method="POST" class="log-in" autocomplete="off">
+        <h4><span>Relay</span></h4>
+        <p id="contextsubtitle">Welcome back!</p>
+    
+        <div class="floating-label">
+            <input placeholder="Username" type="text" name="username" id="username" autocomplete="off" />
+            <label for="username">Username:</label>
+            <div class="icon">
+                <!-- Your SVG content goes here -->
+            </div>
         </div>
-        <form action="/login" method="POST" class="log-in" autocomplete="off">
-            <h4><span>Relay</span></h4>
-            <p id="contextsubtitle">Welcome back!</p>
-            <div class="floating-label">
-                <input placeholder="Username" type="text" name="loginUsername" id="loginUsername" autocomplete="off" />
-                <label for="loginUsername">Username:</label>
-                <div class="icon">
-                    <!-- Your SVG content goes here -->
-                </div>
+        <div class="floating-label">
+            <input placeholder="Password" type="password" name="password" id="password" autocomplete="off" maxlength="25" />
+            <label for="password">Password:</label>
+            <div class="icon">
+                <!-- Your SVG content goes here -->
             </div>
-            <div class="floating-label">
-                <input placeholder="Password" type="password" name="loginPassword" id="loginPassword" autocomplete="off" maxlength="25" />
-                <label for="loginPassword">Password:</label>
-                <div class="icon">
-                    <!-- Your SVG content goes here -->
-                </div>
-            </div>
-            <button type="submit">Log in</button>
-            <a id="toggleLink" class="discrete" onclick="toggleMode(); return false;">New here? Make an account.</a
-        >
-      </form>
+        </div>
+        <button type="submit">Log in</button>
+        <a id="toggleLink" class="discrete" onclick="toggleMode(); return false;">New here? Make an account.</a>
+    </form>
     </div>
   </body>
 </html>

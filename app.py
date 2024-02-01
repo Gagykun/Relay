@@ -1,6 +1,5 @@
 import mysql.connector
 import random
-import string
 import hashlib
 import logging
 from flask import Flask, render_template, request, jsonify, session
@@ -11,7 +10,7 @@ from datetime import datetime
 # Set the logging level to DEBUG
 logging.basicConfig(level=logging.DEBUG)
 
-app = Flask(__name__, static_url_path='/static', static_folder='static')  # Configure static file serving
+app = Flask(__name__, static_url_path='/static', static_folder='static')
 print("Serving...")
 
 database_config = {
@@ -156,7 +155,7 @@ def register_user():
 def login_user():
     try:
         login_data = request.form.to_dict()
-        username = login_data.get('loginUsername')  # Updated to match form field
+        username = login_data.get('loginUsername')
         password = login_data.get('loginPassword')
 
         # Check user credentials
