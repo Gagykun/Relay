@@ -60,6 +60,11 @@ form p {
     margin-bottom: 40px;
 }
 
+#curStatus {
+    align-self: flex-end;
+    margin-top: 10px;
+}
+
 a.discrete {
     color: rgba(0, 0, 0, 0.4);
     font-size: 14px;
@@ -77,6 +82,8 @@ a.discrete:hover {
 
 button {
     -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
     width: auto;
     min-width: 100px;
     border-radius: 24px;
@@ -116,6 +123,8 @@ input {
     color: #000;
     font-weight: 400;
     -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
 }
 
 input:focus {

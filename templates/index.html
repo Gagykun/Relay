@@ -13,33 +13,88 @@
       <meta http-equiv="refresh" content="0.0;url=nojavascript.html" />
     </noscript>
     <script>
+      function showError(message) {
+        var curStatus = document.getElementById("curStatus");
+        curStatus.textContent = message;
+        curStatus.style.color = 'red';
+        setTimeout(function() {
+          curStatus.style.color = ''; // Reset color back to original after 2 seconds
+        }, 2000);
+      }
+    
       function toggleMode() {
         var contextSubtitle = document.getElementById("contextsubtitle");
         var toggleLink = document.getElementById("toggleLink");
         var form = document.getElementsByClassName("log-in")[0];
+        var actionBtn = document.getElementById("actionBtn");
+        var curStatus = document.getElementById("curStatus");
+        curStatus.textContent = ''; // Clear curStatus when switching modes
+    
         if (contextSubtitle.textContent === "Welcome back!") {
-          contextSubtitle.textContent =
-            "Glad you're here, let's get started shall we?";
+          contextSubtitle.textContent = "Glad you're here, let's get started shall we?";
           toggleLink.textContent = "Been here before? Login.";
+          actionBtn.textContent = "Register";
+          actionBtn.dataset.mode = "register";
           form.action = "/register";
           var emailDiv = document.createElement("div");
           emailDiv.className = "floating-label";
           emailDiv.innerHTML = `
-    <input placeholder="Email" type="email" name="email" id="email" autocomplete="off" required />
-    <label for="email">Email:</label>
-    <div class="icon">
-        <!-- You can add an SVG icon here -->
-    </div>
-`;
+            <input placeholder="Email" type="email" name="email" id="email" autocomplete="off" required />
+            <label for="email">Email:</label>
+            <div class="icon">
+                <!-- You can add an SVG icon here -->
+            </div>
+          `;
           form.insertBefore(emailDiv, form.children[2]);
         } else {
           contextSubtitle.textContent = "Welcome back!";
           toggleLink.textContent = "New here? Make an account.";
+          actionBtn.textContent = "Log in";
+          actionBtn.dataset.mode = "login";
           form.action = "/login";
           var emailDiv = document.getElementById("email").parentNode;
           form.removeChild(emailDiv);
         }
       }
+    
+      window.onload = function () {
+        document.getElementById("actionBtn").onclick = function () {
+          var curStatus = document.getElementById("curStatus");
+          var formData = new FormData(this.form);
+          var action = this.form.action;
+    
+          // Make a POST request to the server
+          fetch(action, {
+            method: "POST",
+            body: formData,
+          })
+            .then((response) => {
+              if (!response.ok) {
+                if (response.status === 400) {
+                  throw new Error('The username or email is already in use. Please try another one.');
+                } else {
+                  throw new Error(`HTTP error! status: ${response.status}`);
+                }
+              }
+              return response.json();
+            })
+            .then((data) => {
+              if (data.error) {
+                showError(data.error);
+              } else if (data.message) {
+                curStatus.textContent = data.message;
+                curStatus.style.color = ''; // Reset color back to original
+              }
+            })
+            .catch((error) => {
+              console.error("Error:", error);
+              showError(error.message);
+            });
+    
+          // Prevent the default form submission behavior
+          return false;
+        };
+      };
     </script>
   </head>
 
@@ -51,24 +106,44 @@
       <form action="/login" method="POST" class="log-in" autocomplete="off">
         <h4><span>Relay</span></h4>
         <p id="contextsubtitle">Welcome back!</p>
-    
+
         <div class="floating-label">
-            <input placeholder="Username" type="text" name="username" id="username" autocomplete="off" />
-            <label for="username">Username:</label>
-            <div class="icon">
-                <!-- Your SVG content goes here -->
-            </div>
+          <input
+            placeholder="Username"
+            type="text"
+            name="loginUsername"
+            id="username"
+            autocomplete="off"
+          />
+          <label for="username">Username:</label>
+          <div class="icon">
+            <!-- Your SVG content goes here -->
+          </div>
         </div>
         <div class="floating-label">
-            <input placeholder="Password" type="password" name="password" id="password" autocomplete="off" maxlength="25" />
-            <label for="password">Password:</label>
-            <div class="icon">
-                <!-- Your SVG content goes here -->
-            </div>
+          <input
+            placeholder="Password"
+            type="password"
+            name="loginPassword"
+            id="password"
+            autocomplete="off"
+            maxlength="25"
+          />
+          <label for="password">Password:</label>
+          <div class="icon">
+            <!-- Your SVG content goes here -->
+          </div>
         </div>
-        <button type="submit">Log in</button>
-        <a id="toggleLink" class="discrete" onclick="toggleMode(); return false;">New here? Make an account.</a>
-    </form>
+
+        <button id="actionBtn" type="submit">Log in</button>
+        <p id="curStatus" class="discrete"></p>
+        <a
+          id="toggleLink"
+          class="discrete"
+          onclick="toggleMode(); return false;"
+          >New here? Make an account.</a
+        >
+      </form>
     </div>
   </body>
 </html>
