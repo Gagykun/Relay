@@ -1,26 +1,31 @@
 import mysql.connector
-import random
+import requests
 import hashlib
-from config import Config  # Contains secret key
+import logging
+from config import secretKey, connectionInfo, RandomAPI # config.py
 from flask import Flask, render_template, request, jsonify, session
 from mysql.connector import IntegrityError
 from waitress import serve
 from datetime import datetime
 
+logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__, static_url_path='/static', static_folder='static')
-app.config.from_object(Config)
+app.config.from_object(secretKey)
 
-print("Serving...")
-
-database_config = {
-    'host': '127.0.0.1',
-    'user': 'root',
-    'password': 'apassword',  # No password for testing purposes
-    'database': 'relay',
-}
+# All database information is now stored in config.py for security
+db_config = connectionInfo.database_config
+host = connectionInfo.database_config['host']
+user = connectionInfo.database_config['user']
+password = connectionInfo.database_config['password']
+database = connectionInfo.database_config['database']
 
 def generate_random_string(length):
-    return ''.join(random.choice('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz') for _ in range(length))
+    # Use RANDOM.org for true randomness
+    api = RandomAPI()
+    api_response = requests.post(api.api_base, json=api.api_data)
+    api_response_data = api_response.json()
+    api_response_uuid = api_response_data['result']['random']['data'][0]
+    return api_response_uuid
 
 def hash_password(password):
     salt = generate_random_string(16)
@@ -28,7 +33,7 @@ def hash_password(password):
     return salt, hashed_password
 
 def check_user_credentials(username, password):
-    conn = mysql.connector.connect(**database_config)
+    conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
 
     try:
@@ -51,7 +56,7 @@ class DuplicateEntryError(Exception):
     pass
 
 def insert_user_data(user_data):
-    conn = mysql.connector.connect(**database_config)
+    conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
 
     try:
