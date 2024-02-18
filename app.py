@@ -154,8 +154,7 @@ def login_user():
 
             return jsonify({'message': 'Login successful'}), 200
         else:
-            error_message = 'Invalid credentials. Please check your username and password.'
-            return jsonify({'error': error_message}), 401
+            return jsonify({'error': 'Unauthorized'}), 401  # Unauthorized
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -58,44 +58,46 @@
       }
     
       window.onload = function () {
-        document.getElementById("actionBtn").onclick = function () {
-          var curStatus = document.getElementById("curStatus");
-          var formData = new FormData(this.form);
-          var action = this.form.action;
-    
-          // Make a POST request to the server
-          fetch(action, {
-            method: "POST",
-            body: formData,
-          })
-            .then((response) => {
-              if (!response.ok) {
-                if (response.status === 400) {
-                  throw new Error('The username or email is already in use. Please try another one.');
-                } else {
-                  throw new Error(`HTTP error! status: ${response.status}`);
-                }
-              }
-              return response.json();
-            })
-            .then((data) => {
-              if (data.error) {
-                showError(data.error);
-              } else if (data.message) {
-                curStatus.textContent = data.message;
-                curStatus.style.color = ''; // Reset color back to original
-              }
-            })
-            .catch((error) => {
-              console.error("Error:", error);
-              showError(error.message);
-            });
-    
-          // Prevent the default form submission behavior
-          return false;
-        };
-      };
-    </script>
+    document.getElementById("actionBtn").onclick = function () {
+      var curStatus = document.getElementById("curStatus");
+      var formData = new FormData(this.form);
+      var action = this.form.action;
+
+      // Make a POST request to the server
+      fetch(action, {
+        method: "POST",
+        body: formData,
+      })
+        .then((response) => {
+          if (!response.ok) {
+            if (response.status === 400) {
+              throw new Error('The username or email is already in use. Please try another one.');
+            } else if (response.status === 401) {
+              throw new Error('Invalid Username or Password.');  // Handle 401 status code
+            } else {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+          }
+          return response.json();
+        })
+        .then((data) => {
+          if (data.error) {
+            showError(data.error);
+          } else if (data.message) {
+            curStatus.textContent = data.message;
+            curStatus.style.color = ''; // Reset color back to original
+          }
+        })
+        .catch((error) => {
+          console.error("Error:", error);
+          showError(error.message);
+        });
+
+      // Prevent the default form submission behavior
+      return false;
+    };
+  };
+</script>
   </head>
 
   <body>
