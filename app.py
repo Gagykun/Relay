@@ -2,7 +2,7 @@ import mysql.connector
 import requests
 import hashlib
 import logging
-from config import secretKey, connectionInfo, RandomAPI # config.py
+from config import secretKey, connectionInfo, RandomAPI, GenID # config.py
 from flask import Flask, render_template, request, jsonify, session
 from mysql.connector import IntegrityError
 from waitress import serve
@@ -27,18 +27,34 @@ def generate_random_string(length):
     api_response_uuid = api_response_data['result']['random']['data'][0]
     return api_response_uuid
 
+def sessionIDGen(userID):
+    gen_id = GenID()
+    session_id = gen_id.generate_key()
+
+    conn = mysql.connector.connect(**connectionInfo.database_config)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("UPDATE users SET sessionID = %s WHERE userID = %s", (session_id, userID))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+    return session_id
+
 def hash_password(password):
     salt = generate_random_string(16)
     hashed_password = hashlib.sha256((password + salt).encode()).hexdigest()
     return salt, hashed_password
 
-def check_user_credentials(username, password):
+def check_user_credentials(username_or_email, password):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
 
     try:
-        query = "SELECT userID, username, password, salt FROM users WHERE username = %s"
-        cursor.execute(query, (username,))
+        query = "SELECT userID, username, password, salt FROM users WHERE username = %s OR email = %s"
+        cursor.execute(query, (username_or_email, username_or_email))
         user_data = cursor.fetchone()
 
         if user_data:
@@ -137,7 +153,9 @@ def register_user():
         return jsonify({'error': str(e)}), 400
 
     except Exception as e:
+        print(f"An error occurred: {e}")  # Print the error
         return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+
 
 @app.route('/login', methods=['POST'])
 def login_user():
