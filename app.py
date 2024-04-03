@@ -7,6 +7,8 @@ from flask import Flask, render_template, request, jsonify, session
 from mysql.connector import IntegrityError
 from waitress import serve
 from datetime import datetime
+from flask import request, jsonify
+from threading import Lock
 
 logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__, static_url_path='/static', static_folder='static')
@@ -18,6 +20,11 @@ host = connectionInfo.database_config['host']
 user = connectionInfo.database_config['user']
 password = connectionInfo.database_config['password']
 database = connectionInfo.database_config['database']
+
+# This will store the messages, each message is a dict with 'userID' and 'message' keys
+messages = []
+# This is to ensure thread-safety when accessing the shared 'messages' list
+lock = Lock()
 
 def generate_random_string(length):
     # Use RANDOM.org for true randomness
@@ -81,12 +88,13 @@ def insert_user_data(user_data):
 
         insert_query = """
         INSERT INTO users
-        (userID, username, password, salt, email, userJoinDate, lastLogin, userStatus)
+        (userID, sessionID, username, password, salt, email, userJoinDate, lastLogin, userStatus)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
 
         cursor.execute(insert_query, (
             user_data['userID'],
+            None,
             user_data['username'],
             hashed_password,
             salt,
@@ -153,7 +161,7 @@ def register_user():
         return jsonify({'error': str(e)}), 400
 
     except Exception as e:
-        print(f"An error occurred: {e}")  # Print the error
+        print(f"An error occurred: {e}")
         return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
@@ -169,14 +177,134 @@ def login_user():
         if user_info:
             session['user_id'] = user_info['userID']
             session['username'] = user_info['username']
+            session['userStatus'] = "online"
 
-            return jsonify({'message': 'Login successful'}), 200
+            # Update userStatus in the database
+            conn = mysql.connector.connect(**db_config)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("UPDATE users SET userStatus = 'online' WHERE userID = %s", (user_info['userID'],))
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+
+            return jsonify({
+                'message': 'Login successful',
+                'SID': sessionIDGen(user_info['userID']),
+                'username': user_info['username'],
+                'userID': user_info['userID']
+                }), 200
         else:
             return jsonify({'error': 'Unauthorized'}), 401  # Unauthorized
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/send_message', methods=['POST'])
+def send_message():
+    try:
+        # Parse the JSON data from the request
+        data = request.json
+        user_id = data.get('userID')
+        recipient_id = data.get('recipientID')
+        message = data.get('message')
+
+        if not user_id:
+            return jsonify({'error': 'You must be logged in to send a message'}), 401
+
+        # Insert the message into the database
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO messages (userID, recipientID, message) VALUES (%s, %s, %s)", (user_id, recipient_id, message))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'success': True}), 200
+
+@app.route('/get_messages', methods=['GET'])
+def get_messages():
+    # Get the current user's ID
+    user_id = request.args.get('userID')
+
+    # Fetch the messages from the database
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT userID, message FROM messages WHERE recipientID = %s ORDER BY timestamp", (user_id,))
+        messages = [{'userID': row[0], 'message': row[1]} for row in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+    return jsonify(messages), 200
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    try:
+        user_id = request.form.get('userID')
+
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE users SET userStatus = 'offline' WHERE userID = %s", (user_id,))
+            cursor.execute("UPDATE users SET sessionID = NULL WHERE userID = %s", (user_id,))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+        session.clear()
+
+        return jsonify({'message': 'Logout successful'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/user_idle', methods=['POST'])
+def user_idle():
+    try:
+        user_id = request.form.get('userID')
+
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE users SET userStatus = 'idle' WHERE userID = %s", (user_id,))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+        return jsonify({'message': 'User status set to idle'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/user_online', methods=['POST'])
+def user_online():
+    try:
+        user_id = request.form.get('userID')
+
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE users SET userStatus = 'online' WHERE userID = %s", (user_id,))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+        return jsonify({'message': 'User status set to online'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # serve(app, host='0.0.0.0', port=5000)  # Waitress
-    app.run(debug=True)  # Debug
+    app.run(host='10.0.0.108', port=5000, debug=True)  # Debug

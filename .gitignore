@@ -5,3 +5,5 @@ __pycache__
 pyqt
 testFiles
 login.py
+relay.sql
+.vscode
