@@ -2,17 +2,56 @@ import mysql.connector
 import requests
 import hashlib
 import logging
+import traceback
+import os
 from config import secretKey, connectionInfo, RandomAPI, GenID # config.py
-from flask import Flask, render_template, request, jsonify, session
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_socketio import SocketIO
+from flask import Flask, render_template, request, jsonify, session, send_file
 from mysql.connector import IntegrityError
-from waitress import serve
+#from waitress import serve
 from datetime import datetime
 from flask import request, jsonify
 from threading import Lock
 
+# Arbitrary IP Blocking
+
+from flask import request, jsonify
+from functools import wraps
+import logging
+
+STATIC_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+DEFAULT_PFP_PATH = os.path.join(STATIC_FOLDER, 'default_pfp.jpg')
+print("STATIC_FOLDER: ", STATIC_FOLDER)
+print("DEFAULT_PFP_PATH: ", DEFAULT_PFP_PATH)
+
+def ip_check(func):
+    @wraps(func)
+    def decorated_function(*args, **kwargs):
+        # Get the IP address of the client
+        ip_address = request.remote_addr
+
+        # Check if the IP address starts with "10.0.0."
+        if not ip_address.startswith("10.0.0."):
+            # Log the IP address
+            logging.warning(f"Unauthorized access attempt from IP: {ip_address}")
+
+            # Return a 401 status code
+            return jsonify({'error': 'Unauthorized access detected. You have been banned for tampering with Department of Justice property. An official investigation is underway.'}), 401 # Get troll'd :P
+
+        # If the IP address is valid, call the original function
+        print("Local IP Address: ", ip_address)
+        return func(*args, **kwargs)
+
+    return decorated_function
+
+# End of Arbitrary IP Blocking
+
 logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 app.config.from_object(secretKey)
+limiter = Limiter(app=app, key_func=get_remote_address)
 
 # All database information is now stored in config.py for security
 db_config = connectionInfo.database_config
@@ -82,26 +121,33 @@ def insert_user_data(user_data):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
 
+    if user_data['username'] == '' or user_data['password'] == '' or user_data['email'] == '' or user_data['username'] == None or user_data['password'] == None or user_data['email'] == None:
+        print("Bad request")
+        return jsonify({'error': 'Missing critical user info'}), 400
+
     try:
         user_data['userID'] = generate_random_string(25)
         salt, hashed_password = hash_password(user_data['password'])
 
         insert_query = """
         INSERT INTO users
-        (userID, sessionID, username, password, salt, email, userJoinDate, lastLogin, userStatus)
+        (userID, sessionID, password, salt, userName, email, userJoinDate, lastLogin, userStatus, profilePicture, userBio, friends)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
 
         cursor.execute(insert_query, (
-            user_data['userID'],
+            user_data['userID'], # userID
+            None, # sessionID
+            hashed_password, # password
+            salt, # salt
+            user_data['username'], # userName
+            user_data['email'], # email
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'), # userJoinDate
             None,
-            user_data['username'],
-            hashed_password,
-            salt,
-            user_data['email'],
-            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            None,
-            'offline',
+            'offline', # userStatus
+            None, # profilePicture
+            None, # userBio
+            None # friends
         ))
 
         conn.commit()
@@ -136,36 +182,44 @@ def insert_user_data(user_data):
         cursor.close()
         conn.close()
 
+socketio = SocketIO(app)
+
 @app.route('/')
+@ip_check
 def home():
     return render_template('index.html')
 
 @app.route('/nojavascript.html')
+@ip_check
 def no_javascript():
     return render_template('nojavascript.html')
 
 @app.route('/register', methods=['POST'])
+@ip_check
+#@limiter.limit("1/days") # Limit to 1 registration per day
 def register_user():
-    try:
-        username = request.form.get('loginUsername')
-        password = request.form.get('loginPassword')
-        email = request.form.get('email')
+    #try:
+    username = request.form.get('loginUsername')
+    password = request.form.get('loginPassword')
+    email = request.form.get('email')
+    user_data = {'username': username, 'password': password, 'email': email}
+    insert_user_data(user_data)
+    print("User registered successfully")
+    print(user_data)
+    return jsonify({'message': 'User registered successfully'}), 201
+    
 
-        user_data = {'username': username, 'password': password, 'email': email}
+    #except DuplicateEntryError as e:
+        #return jsonify({'error': str(e)}), 400
 
-        insert_user_data(user_data)
-
-        return jsonify({'message': 'User registered successfully'}), 201
-
-    except DuplicateEntryError as e:
-        return jsonify({'error': str(e)}), 400
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+    #except Exception as e:
+        #print(f"An error occurred: {e}")
+        #return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 @app.route('/login', methods=['POST'])
+@ip_check
+#@limiter.limit("15/hour") # Limit to 15 login attempts per hour
 def login_user():
     try:
         login_data = request.form.to_dict()
@@ -179,12 +233,15 @@ def login_user():
             session['username'] = user_info['username']
             session['userStatus'] = "online"
 
-            # Update userStatus in the database
+            # Update userStatus, lastLogin in the database
             conn = mysql.connector.connect(**db_config)
             cursor = conn.cursor()
             try:
+                cursor.execute("UPDATE users SET lastLogin = %s WHERE userID = %s", (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_info['userID']))
                 cursor.execute("UPDATE users SET userStatus = 'online' WHERE userID = %s", (user_info['userID'],))
                 conn.commit()
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
             finally:
                 cursor.close()
                 conn.close()
@@ -200,12 +257,81 @@ def login_user():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/fetch_friends', methods=['POST'])
+@ip_check
+def fetch_friends():
+    try:
+        user_id = request.form.get('userID')
+
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            # Assuming the 'friends' column contains comma-separated userIDs of friends
+            cursor.execute("SELECT friends FROM users WHERE userID = %s", (user_id,))
+            friends_data = cursor.fetchone()
+            if friends_data:
+                friends = friends_data[0].split(',')
+            else:
+                friends = []
+        except Exception as e:
+                return jsonify({'error': str(e)}), 500
+        finally:
+            cursor.close()
+            conn.close()
+
+        return jsonify({'friends': friends}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/fetch_username', methods=['POST'])
+def fetch_username():
+    user_id = request.form.get('userID')
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT username FROM users WHERE userID = %s", (user_id,))
+        username = cursor.fetchone()[0]
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({'username': username}), 200
+
+@app.route('/fetchPFP', methods=['POST'])
+@ip_check
+def fetch_user_pfp():
+    try:
+        user_id = request.form.get('userID')
+
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT profilePicture FROM users WHERE userID = %s", (user_id,))
+            result = cursor.fetchone()
+            if result is None or result[0] is None or result[0] == "":
+                print("No profile picture found for user", user_id)
+                profile_picture_path = "static/default_pfp.jpg"
+            else:
+                profile_picture_path = result[0]
+        finally:
+            cursor.close()
+            conn.close()
+
+        return send_file(profile_picture_path, mimetype='image/jpeg')
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/send_message', methods=['POST'])
+@ip_check
+#@limiter.limit("25/minute") # Limit to 25 messages per minute
 def send_message():
     try:
         # Parse the JSON data from the request
         data = request.json
+        print(data)
         user_id = data.get('userID')
         recipient_id = data.get('recipientID')
         message = data.get('message')
@@ -223,29 +349,43 @@ def send_message():
             cursor.close()
             conn.close()
 
+        try:
+            # Broadcast the message to recipient
+            print("sent message to recipient: ", recipient_id)
+            socketio.emit('message', {'userID': user_id, 'message': message})#, room=recipient_id)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+        return jsonify({'success': 'Message sent'}), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-    return jsonify({'success': True}), 200
-
-@app.route('/get_messages', methods=['GET'])
-def get_messages():
-    # Get the current user's ID
-    user_id = request.args.get('userID')
-
-    # Fetch the messages from the database
-    conn = mysql.connector.connect(**db_config)
-    cursor = conn.cursor()
+        return jsonify({'error': str(e)}), 400
+    
+@app.route('/fetch_messages', methods=['POST'])
+@ip_check
+def fetch_messages():
     try:
-        cursor.execute("SELECT userID, message FROM messages WHERE recipientID = %s ORDER BY timestamp", (user_id,))
-        messages = [{'userID': row[0], 'message': row[1]} for row in cursor.fetchall()]
-    finally:
-        cursor.close()
-        conn.close()
+        user_id = request.form.get('userID')
+        recipient_id = request.form.get('recipientID')
 
-    return jsonify(messages), 200
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT userID, message FROM messages WHERE (userID = %s AND recipientID = %s) OR (userID = %s AND recipientID = %s) ORDER BY id", (user_id, recipient_id, recipient_id, user_id))
+            messages_data = cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+
+        print("Fetched", len(messages_data), "messages for user", user_id, "and recipient", recipient_id)
+        messages = [{'userID': message[0], 'message': message[1]} for message in messages_data]
+        return jsonify({'messages': messages}), 200
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        return jsonify({'error': str(e), 'traceback': tb}), 500
 
 @app.route('/logout', methods=['POST'])
+@ip_check
 def logout():
     try:
         user_id = request.form.get('userID')
@@ -268,6 +408,7 @@ def logout():
         return jsonify({'error': str(e)}), 500
     
 @app.route('/user_idle', methods=['POST'])
+@ip_check
 def user_idle():
     try:
         user_id = request.form.get('userID')
@@ -287,6 +428,7 @@ def user_idle():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/user_online', methods=['POST'])
+@ip_check
 def user_online():
     try:
         user_id = request.form.get('userID')
@@ -307,4 +449,4 @@ def user_online():
 
 if __name__ == '__main__':
     # serve(app, host='0.0.0.0', port=5000)  # Waitress
-    app.run(host='10.0.0.108', port=5000, debug=True)  # Debug
+    socketio.run(app, host='10.0.0.108', port=5000, debug=True)  # Debug
