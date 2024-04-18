@@ -21,7 +21,8 @@ from flask import request, jsonify
 from functools import wraps
 import logging
 
-STATIC_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+# Define the path to the "static" folder
+STATIC_FOLDER = os.path.join(os.path.expanduser("~"), 'RelayServerStuff', 'static')
 DEFAULT_PFP_PATH = os.path.join(STATIC_FOLDER, 'default_pfp.jpg')
 print("STATIC_FOLDER: ", STATIC_FOLDER)
 print("DEFAULT_PFP_PATH: ", DEFAULT_PFP_PATH)
@@ -123,7 +124,7 @@ def insert_user_data(user_data):
 
     if user_data['username'] == '' or user_data['password'] == '' or user_data['email'] == '' or user_data['username'] == None or user_data['password'] == None or user_data['email'] == None:
         print("Bad request")
-        return jsonify({'error': 'Missing critical user info'}), 400
+        return jsonify({'error': 'Bad request'}), 400
 
     try:
         user_data['userID'] = generate_random_string(25)
@@ -132,8 +133,9 @@ def insert_user_data(user_data):
         insert_query = """
         INSERT INTO users
         (userID, sessionID, password, salt, userName, email, userJoinDate, lastLogin, userStatus, profilePicture, userBio, friends)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
+
 
         cursor.execute(insert_query, (
             user_data['userID'], # userID
@@ -176,7 +178,8 @@ def insert_user_data(user_data):
             raise e
 
     except Exception as e:
-        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
+        print(f'An unexpected error occurred: {str(e)}')
+        traceback.print_exc()
 
     finally:
         cursor.close()
@@ -198,24 +201,28 @@ def no_javascript():
 @ip_check
 #@limiter.limit("1/days") # Limit to 1 registration per day
 def register_user():
-    #try:
-    username = request.form.get('loginUsername')
-    password = request.form.get('loginPassword')
-    email = request.form.get('email')
-    user_data = {'username': username, 'password': password, 'email': email}
-    insert_user_data(user_data)
-    print("User registered successfully")
-    print(user_data)
-    return jsonify({'message': 'User registered successfully'}), 201
-    
+    try:
+        username = request.form.get('username')
+        password = request.form.get('password')
+        email = request.form.get('email')
 
-    #except DuplicateEntryError as e:
-        #return jsonify({'error': str(e)}), 400
+        # Check if any of the required fields are missing
+        if not (username and password and email):
+            raise ValueError("Missing required fields: username, password, or email")
 
-    #except Exception as e:
-        #print(f"An error occurred: {e}")
-        #return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        # Insert user data into the database
+        user_data = {'username': username, 'password': password, 'email': email}
+        insert_user_data(user_data)
+        print("User registered successfully")
+        print(user_data)
 
+        return jsonify({'message': 'User registered successfully'}), 201
+
+    except Exception as e:
+        # Log the traceback for debugging purposes
+        traceback.print_exc()
+        print(f"Error during user registration: {e}")
+        return jsonify({'error': 'An error occurred during user registration'}), 500
 
 @app.route('/login', methods=['POST'])
 @ip_check
@@ -270,6 +277,7 @@ def fetch_friends():
             # Assuming the 'friends' column contains comma-separated userIDs of friends
             cursor.execute("SELECT friends FROM users WHERE userID = %s", (user_id,))
             friends_data = cursor.fetchone()
+            print("Friends data:", friends_data[0])
             if friends_data:
                 friends = friends_data[0].split(',')
             else:
@@ -286,17 +294,36 @@ def fetch_friends():
         return jsonify({'error': str(e)}), 500
     
 @app.route('/fetch_username', methods=['POST'])
+@ip_check
 def fetch_username():
-    user_id = request.form.get('userID')
-    conn = mysql.connector.connect(**db_config)
-    cursor = conn.cursor()
     try:
-        cursor.execute("SELECT username FROM users WHERE userID = %s", (user_id,))
-        username = cursor.fetchone()[0]
-    finally:
-        cursor.close()
-        conn.close()
-    return jsonify({'username': username}), 200
+        user_id = request.form.get('userID')
+        print("User ID:", user_id)
+        if not user_id:
+            return jsonify({'error': 'User ID not provided in the request.'}), 400
+        
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT username FROM users WHERE userID = %s", (user_id,))
+            result = cursor.fetchone()
+            if result:
+                username = result[0]
+            else:
+                # Handle the case when the user ID doesn't exist
+                return jsonify({'error': f'User with ID {user_id} not found.'}), 404
+        except Exception as e:
+            # Print detailed error information to the terminal
+            print("Error fetching username:", str(e))
+            return jsonify({'error': 'Internal server error occurred. Check server logs for details.'}), 500
+        finally:
+            cursor.close()
+            conn.close()
+        return jsonify({'username': username}), 200
+    except Exception as e:
+        # Print detailed error information to the terminal
+        print("Exception occurred:", str(e))
+        return jsonify({'error': 'Internal server error occurred. Check server logs for details.'}), 500
 
 @app.route('/fetchPFP', methods=['POST'])
 @ip_check
@@ -311,9 +338,16 @@ def fetch_user_pfp():
             result = cursor.fetchone()
             if result is None or result[0] is None or result[0] == "":
                 print("No profile picture found for user", user_id)
-                profile_picture_path = "static/default_pfp.jpg"
+                profile_picture_path = DEFAULT_PFP_PATH
             else:
-                profile_picture_path = result[0]
+                profile_picture_filename = result[0]  # Now it's just "{userID}.jpg"
+                print("Profile picture found for user", user_id, "with filename", profile_picture_filename)
+                # Construct the full file path
+                profile_picture_path = os.path.join(STATIC_FOLDER, profile_picture_filename)
+                # Check if the file exists
+                if not os.path.exists(profile_picture_path):
+                    print("Profile picture file does not exist:", profile_picture_path)
+                    profile_picture_path = DEFAULT_PFP_PATH
         finally:
             cursor.close()
             conn.close()
@@ -372,6 +406,7 @@ def fetch_messages():
         try:
             cursor.execute("SELECT userID, message FROM messages WHERE (userID = %s AND recipientID = %s) OR (userID = %s AND recipientID = %s) ORDER BY id", (user_id, recipient_id, recipient_id, user_id))
             messages_data = cursor.fetchall()
+            print(messages_data)
         finally:
             cursor.close()
             conn.close()

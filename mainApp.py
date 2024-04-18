@@ -5,20 +5,20 @@ import socketio
 import traceback
 import json
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import QTimer, QPropertyAnimation, QVariantAnimation, Qt, pyqtSignal
+from PyQt6.QtCore import QTimer, Qt, pyqtSignal
 from login import Ui_LoginWindow  # Login Window
 from mainTest import Ui_MainWindow  # Chat Window
 
-base_api_url = "http://10.0.0.108:5000/"
-WS_URL = "ws://10.0.0.108:5000"
-api_mode = "login"
+base_api_url = "http://10.0.0.108:5000/" # The base URL for the API
+WS_URL = "ws://10.0.0.108:5000" # The WebSocket URL
+api_mode = "login" # The default API mode
 
 # Setup SocketIO
 sio = socketio.Client()
 sio.connect(WS_URL)
 
 
-class LoginWindow(QtWidgets.QMainWindow, Ui_LoginWindow):
+class LoginWindow(QtWidgets.QMainWindow, Ui_LoginWindow): # The not so head honcho, the login window
     def __init__(self, *args, **kwargs):
         super(LoginWindow, self).__init__(*args, **kwargs)
         self.setupUi(self)
@@ -47,9 +47,9 @@ class LoginWindow(QtWidgets.QMainWindow, Ui_LoginWindow):
                 if api_mode == "register":
                     self.LRStatus.setText("Registering...")
                     register_data = {
-                        'username': str(self.usernameField.text()),  # Add username field
-                        'password': str(self.passwordField.text()),  # Add password field
-                        'email': str(self.emailField.text())  # Add email field
+                        'username': str(self.usernameField.text()),
+                        'password': str(self.passwordField.text()),
+                        'email': str(self.emailField.text())
                     }
                     print(register_data)
                     response = requests.post(base_api_url + 'register', data=register_data)
@@ -90,11 +90,11 @@ class LoginWindow(QtWidgets.QMainWindow, Ui_LoginWindow):
         self.LRConfirmBtn.clicked.connect(LRUser)
         self.LRSwapBtn.clicked.connect(swapMode)
 
-class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
-    new_message_signal = pyqtSignal(dict)
+class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow): # The head honcho, the main chat window
+    new_message_signal = pyqtSignal(dict) # Signal used by PyQT to emit new messages
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
-        self.new_message_signal.connect(self.invoke_message_handler)
+        self.new_message_signal.connect(self.invoke_message_handler) # Connect the signal to the message handler
         global main_window
         main_window = self
         self.setupUi(self)
@@ -106,18 +106,18 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.activity_timer = QTimer() # Timer to check for user activity after idle
         self.activity_timer.timeout.connect(self.check_for_activity)
         self.stackedWidget.setCurrentWidget(self.startPage)
-        self.DMList.setLayout(QtWidgets.QVBoxLayout())
-        self.MessageTemplate_3.setVisible(False)
+        self.DMFriendsList.setLayout(QtWidgets.QVBoxLayout())
+        self.messageTemplate.setVisible(False)
         self.DMFriend.setVisible(False)
-        self.verticalLayout_3.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.scrollAreaLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.pfpCache = {} # Cache for profile pictures to reduce API calls
 
         # Connect to SocketIO events
         sio.on('message', self.invoke_message_handler)
         sio.on('connect', self.on_connect)
         sio.on('disconnect', self.on_disconnect)
         
-
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key.Key_Enter or event.key() == QtCore.Qt.Key.Key_Return and self.stackedWidget.currentWidget() == self.chatPage:
             self.send_message()
@@ -129,109 +129,84 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def on_disconnect(self):
         print('Disconnected from server')
 
+    @QtCore.pyqtSlot(dict) # Decorator to allow the method to accept a dictionary as an argument or else we get mismatching parent errors.
     def invoke_message_handler(self, message):
         try:
             QtCore.QMetaObject.invokeMethod(self, "process_incoming_message", QtCore.Qt.ConnectionType.QueuedConnection, QtCore.Q_ARG(QtCore.QVariant, message))
         except Exception as e:
             self.handle_request_exception(e)
 
-    def create_chat_message_widget(self, username, message):
-        # Create a new QFrame and copy the contents of MessageTemplate_3
-        message_widget = QtWidgets.QFrame()
-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.MessageTemplate_3.sizePolicy().hasHeightForWidth())
-        message_widget.setSizePolicy(sizePolicy)
-        message_widget.setMinimumSize(QtCore.QSize(739, 71))
-        message_widget.setMaximumSize(QtCore.QSize(739, 71))
-        message_widget.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
-        message_widget.setFrameShadow(QtWidgets.QFrame.Shadow.Raised)
-        message_widget.setObjectName("MessageTemplate_3")
 
-        # Copy the contents of MessageTemplate_3
-        layout = QtWidgets.QGridLayout(message_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(5)
-        layout.setVerticalSpacing(0)
-        layout.setParent(message_widget)
+    def create_chat_message_widget(self, username, message, recipientID): # You have no idea how long this took to figure out. I blame sizing. >:(
+        messageTemplate = QtWidgets.QWidget(self.scrollAreaContents)
+        messageTemplate.setMaximumSize(QtCore.QSize(800, 80))
+        messageTemplate.setObjectName("messageTemplate")
 
-        messagePFP = QtWidgets.QLabel(parent=self.MessageTemplate_3)
-        messagePFP.setMinimumSize(QtCore.QSize(50, 50))
-        messagePFP.setMaximumSize(QtCore.QSize(50, 50))
-        messagePFP.setText("")
-        messagePFP.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        messagePFP.setObjectName("messagePFP")
-        pixmap = QtGui.QPixmap(self.fetchPFP(username))
-        scaled_pixmap = pixmap.scaled(50, 50, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
-        messagePFP.setPixmap(scaled_pixmap)
-        messagePFP.setScaledContents(True)
-        messagePFP.setParent(message_widget)
+        messageGridLayout = QtWidgets.QGridLayout(parent=messageTemplate)
+        messageGridLayout.setObjectName("messageGridLayout")
 
-        messageUsername = QtWidgets.QLabel()
-        font = QtGui.QFont()
-        font.setFamily("MS Shell Dlg 2")
-        font.setPointSize(8)
-        font.setBold(True)
-        messageUsername.setFont(font)
-        messageUsername.setTextFormat(QtCore.Qt.TextFormat.AutoText)
-        messageUsername.setScaledContents(True)
-        messageUsername.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeading|QtCore.Qt.AlignmentFlag.AlignLeft|QtCore.Qt.AlignmentFlag.AlignVCenter)
-        messageUsername.setObjectName("messageUsername_3")
-        messageUsername.setParent(message_widget)
-        layout.addWidget(messageUsername, 0, 1, 2, 1)
-
-        messageContents = QtWidgets.QLabel()
-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(messageContents.sizePolicy().hasHeightForWidth())
-        messageContents.setSizePolicy(sizePolicy)
-        messageContents.setMinimumSize(QtCore.QSize(739, 71))
-        messageContents.setMaximumSize(QtCore.QSize(739, 71))
-        messageContents.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
-        messageContents.setFrameShadow(QtWidgets.QFrame.Shadow.Raised)
+        messageUsername = QtWidgets.QLabel(parent=messageTemplate)
         font = QtGui.QFont()
         font.setFamily("MS Shell Dlg 2")
         font.setPointSize(9)
-        messageContents.setFont(font)
-        messageContents.setObjectName("messageContents_3")
-        messageContents.setParent(message_widget)
-        layout.addWidget(messageContents, 2, 1, 2, 1)
-        message_widget.update()
-
-        # Set the message content
+        font.setBold(True)
+        messageUsername.setFont(font)
+        messageUsername.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeading|QtCore.Qt.AlignmentFlag.AlignLeft|QtCore.Qt.AlignmentFlag.AlignVCenter)
+        messageUsername.setObjectName("messageUsername")
         messageUsername.setText(username)
-        messageContents.setText(message)
+        messageGridLayout.addWidget(messageUsername, 0, 1, 1, 1)
 
-        return message_widget
+        messageContents = QtWidgets.QLabel(parent=messageTemplate)
+        font = QtGui.QFont()
+        font.setFamily("MS Shell Dlg 2")
+        font.setPointSize(8)
+        messageContents.setFont(font)
+        messageContents.setObjectName("messageContents")
+        messageContents.setText(message)
+        messageGridLayout.addWidget(messageContents, 1, 1, 1, 1)
+
+        messagePFP = QtWidgets.QLabel(parent=messageTemplate)
+        messagePFP.setMinimumSize(QtCore.QSize(50, 50))
+        messagePFP.setMaximumSize(QtCore.QSize(50, 50))
+        messagePFP.setText("")
+        pixmap = QtGui.QPixmap(self.fetchPFP(recipientID))
+        scaled_pixmap = pixmap.scaled(50, 50, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+        messagePFP.setPixmap(scaled_pixmap)
+        messagePFP.setScaledContents(True)
+        messagePFP.setObjectName("messagePFP")
+        messageGridLayout.addWidget(messagePFP, 0, 0, 2, 1)
+
+        return messageTemplate
 
     @QtCore.pyqtSlot(QtCore.QVariant)
     def process_incoming_message(self, message):
-        username = self.fetch_username(message['userID'])
-        message = message['message']
+        print(message)
+        user_id = message['userID']
+        username = self.fetch_username(user_id)
+        message_text = message['message']
         try:
-            new_message_widget = self.create_chat_message_widget(username, message)
-            self.verticalLayout_3.addWidget(new_message_widget)
-            self.scrollArea.ensureWidgetVisible(new_message_widget)
-            self.scrollArea.verticalScrollBar().setValue(self.scrollArea.verticalScrollBar().maximum())
+            recipient_id = message.get('userID')
+            message_widget = self.create_chat_message_widget(username, message_text, recipient_id)
+            self.scrollAreaLayout.addWidget(message_widget)
+            QtCore.QTimer.singleShot(100, lambda: self.scrollArea.verticalScrollBar().setValue(self.scrollArea.verticalScrollBar().maximum()))
         except Exception as e:
             self.handle_request_exception(e)
 
 
-    def check_for_idle(self):
+
+    def check_for_idle(self): # Check if the user is idle
         current_mouse_pos = pyautogui.position() # Get the current mouse position
         if current_mouse_pos == self.last_mouse_pos: # If the mouse hasn't moved
             self.set_user_as_idle()
         else:
             self.last_mouse_pos = current_mouse_pos
 
-    def check_for_activity(self):
+    def check_for_activity(self): # Check if the user is active
         current_mouse_pos = pyautogui.position()
         if current_mouse_pos != self.last_mouse_pos: # The mouse has moved, so the user is active
             self.set_user_as_active()
 
-    def set_user_as_active(self):
+    def set_user_as_active(self): # Set the user as active
         print("User is active!")
         self.activity_timer.stop()
         self.idle_timer.start(5 * 60 * 1000)  # Check for idle every 5 minutes
@@ -241,7 +216,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.handle_request_exception(e)
 
-    def set_user_as_idle(self):
+    def set_user_as_idle(self): # Set the user as idle
         print("User is idle!")
         self.idle_timer.stop()
         self.activity_timer.start(5 * 1000)  # Check for activity every 5 seconds
@@ -251,7 +226,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.handle_request_exception(e)
 
-    def handle_request_exception(self, e, response=None):
+    def handle_request_exception(self, e, response=None): # Handle all exceptions
         print("Request Error:", e)
         if response is not None:
             print("Response content:", response.content)
@@ -267,7 +242,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         else:
             print("An unknown error occurred:", e)
 
-    def showEvent(self, event):
+    def showEvent(self, event): # Check for session ID when the window is shown
         super().showEvent(event)
         if self.session_id is not None:
             print("Session ID found!")
@@ -277,12 +252,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.session_check_timer.timeout.connect(self.check_for_session_id)
             self.session_check_timer.start(5000)
 
-    def check_for_session_id(self):
+    def check_for_session_id(self): # Check for session ID
         if self.session_id is not None:
             print("Session ID found!")
             self.session_check_timer.stop()
     
-    def fetch_username(self, user_id):
+    def fetch_username(self, user_id): # A function to fetch the username of a users ID
+        print(f"Fetching username for {user_id}")
         try:
             response = requests.post(base_api_url + 'fetch_username', data={'userID': user_id})
             response.raise_for_status()
@@ -290,82 +266,89 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.handle_request_exception(e)
     
-    def fetchFriends(self):
+    def fetchFriends(self): # Fetch the friends of the user using their ID
         try:
             response = requests.post(base_api_url + 'fetch_friends', data={'userID': self.userID})
             response.raise_for_status()
-            friend_ids = response.json()['friends']
+            friend_ids = [friend_id.strip() for friend_id in response.json()['friends']]
+            print(friend_ids)
             for friend_id in friend_ids:
                 username = self.fetch_username(friend_id)
                 print(f"Creating widget for {username}")
                 clone_widget = self.create_new_friend_widget(username, friend_id)
                 print("Created new widget!")
-                self.DMList.layout().addWidget(clone_widget)  # Add the widget to the layout
+                self.DMFriendsList.layout().addWidget(clone_widget)  # Add the widget to the layout
         except Exception as e:
             self.handle_request_exception(e)
 
-    def create_new_friend_widget(self, username, friend_id):
+    def create_new_friend_widget(self, username, friend_id): # Create a new friend widget
         try:
-            # Create a new QFrame and copy the contents of DMFriend
-            new_widget = QtWidgets.QFrame()
-            new_widget.setObjectName("DMFriend")
-            new_widget.setMinimumSize(QtCore.QSize(221, 51))
-            new_widget.setMaximumSize(QtCore.QSize(221, 51))
-            new_widget.setFrameStyle(1)
+            DMFriend = QtWidgets.QWidget(parent=self.DMFriendsListContents)
+            DMFriend.setEnabled(True)
+            DMFriend.setMinimumSize(QtCore.QSize(221, 51))
+            DMFriend.setMaximumSize(QtCore.QSize(221, 51))
+            DMFriend.setObjectName("DMFriend")
 
-            # Create a layout for the new widget
-            layout = QtWidgets.QHBoxLayout(new_widget)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
+            horizontalLayout = QtWidgets.QHBoxLayout(DMFriend)
+            horizontalLayout.setContentsMargins(0, 0, 0, 0)
+            horizontalLayout.setSpacing(0)
+            horizontalLayout.setObjectName("horizontalLayout")
 
-            # Create a QLabel for the friend's profile picture
-            DMListPFP = QtWidgets.QLabel()
+            DMListPFP = QtWidgets.QLabel(DMFriend)
             DMListPFP.setMinimumSize(QtCore.QSize(50, 50))
             DMListPFP.setMaximumSize(QtCore.QSize(50, 50))
             DMListPFP.setText("")
-            DMListPFP.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            DMListPFP.setObjectName("DMListPFP")
-            pixmap = self.fetchPFP(None)
             pixmap = QtGui.QPixmap(self.fetchPFP(friend_id))
             scaled_pixmap = pixmap.scaled(50, 50, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
             DMListPFP.setPixmap(scaled_pixmap)
+            DMListPFP.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            DMListPFP.setObjectName("DMListPFP")
+            horizontalLayout.addWidget(DMListPFP)
 
-            # Create a QPushButton for the friend's username
-            new_button = QtWidgets.QPushButton(username)
-            new_button.setMinimumSize(QtCore.QSize(100, 20))
-            new_button.setMaximumSize(QtCore.QSize(160, 50))
+            DMListFriendName = QtWidgets.QPushButton(DMFriend)
+            DMListFriendName.setMinimumSize(QtCore.QSize(100, 20))
+            DMListFriendName.setMaximumSize(QtCore.QSize(160, 50))
             font = QtGui.QFont()
             font.setFamily("Segoe UI")
             font.setPointSize(9)
             font.setBold(False)
-            new_button.setFont(font)
-            new_button.setAutoFillBackground(True)
-            new_button.setIconSize(QtCore.QSize(0, 0))
-            layout.addWidget(new_button)
+            DMListFriendName.setFont(font)
+            DMListFriendName.setAutoFillBackground(True)
+            DMListFriendName.setIconSize(QtCore.QSize(0, 0))
+            DMListFriendName.setObjectName("DMListFriendName")
+            DMListFriendName.setText(self.fetch_username(friend_id))
+            horizontalLayout.addWidget(DMListFriendName)
 
             # Connect the button to the openDM method with friend_id and username as arguments
-            new_button.clicked.connect(lambda: self.openDM(friend_id, username))
+            DMListFriendName.clicked.connect(lambda: self.openDM(friend_id, username))
 
-            # Insert the new widget at the top of DMList
-            self.verticalLayout_4.insertWidget(0, new_widget)
+            # Insert the new widget at the top of DMFriendsList
+            self.DMFriendsListContentsLayout.insertWidget(0, DMFriend)
 
-            return new_widget
+            return DMFriend
         except Exception as e:
             self.handle_request_exception(e)
     
-    def fetchPFP(self, recipientID):
+    def fetchPFP(self, recipientID): # Fetch the profile picture of a user based on their ID
         userID = self.userID if recipientID is None else recipientID
+        # Check if the profile picture is in the cache. saves bandwidth and API calls
+        if userID in self.pfpCache:
+            print("Using cached profile picture for", userID)
+            return self.pfpCache[userID]
         try:
             response = requests.post(base_api_url + 'fetchPFP', data={'userID': userID}, stream=True)
             response.raise_for_status()
             pixmap = QtGui.QPixmap()
             pixmap.loadFromData(response.raw.read())
+            # Store the profile picture in the cache
+            self.pfpCache[userID] = pixmap
+            print("pfpCache KB: ", round(sys.getsizeof(self.pfpCache) / 1024, -2), "KB")
             return pixmap
         except Exception as e:
             print("Error fetching profile picture")
             self.handle_request_exception(e)
 
-    def userSessionSetup(self, session_id, session_user, session_userID):
+    def userSessionSetup(self, session_id, session_user, session_userID): # Sets up critical session data
         self.session_id = session_id
         self.userID = session_userID
         self.userName.setText(session_user)
@@ -377,20 +360,25 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         scaled_pixmap = pixmap.scaled(50, 50, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
         self.userProfilePicture.setPixmap(scaled_pixmap)
 
-    def openDM(self, friendID, username):
+    def openDM(self, friendID, username): # Open a direct message with a friend
         global recipientID
         recipientID = friendID
-        print("Opening DM with", friendID, username)
         self.stackedWidget.setCurrentWidget(self.chatPage)
         self.friendUserName.setText(username)
         self.messageEntryBox.setPlaceholderText(f"Message {username}")
+    
+        # Clear the scrollArea
+        layout = self.scrollArea.widget().layout()
+        for i in reversed(range(layout.count())): 
+            layout.itemAt(i).widget().setParent(None)
+    
         self.fetch_message_history(recipientID)
         pixmap = self.fetchPFP(None)
         pixmap = QtGui.QPixmap(self.fetchPFP(friendID))
         scaled_pixmap = pixmap.scaled(50, 50, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
-        self.userProfilePicture.setPixmap(scaled_pixmap)
+        self.recipientPFP.setPixmap(scaled_pixmap)
     
-    def send_message(self):
+    def send_message(self): # Function to send a message
         global recipientID
         print("sending message to", recipientID)
         message = self.messageEntryBox.toPlainText()
@@ -402,7 +390,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.handle_request_exception(e)
 
-    def fetch_message_history(self, recipientID):
+    def fetch_message_history(self, recipientID): # Fetch the message history of a user based on their ID
         print("Fetching message history...")
         try:
             response = requests.post(base_api_url + 'fetch_messages', data={'userID': self.userID, 'recipientID': recipientID})
@@ -415,17 +403,18 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     @sio.event
     @sio.on('message')
-    def on_message(self, message):
+    def on_message(self, message): # SocketIO event for receiving messages
         print("Received message from server:", message)
         print("Message data:", message)
         self.new_message_signal.emit(message)
 
-    def closeEvent(self, event):
+    def closeEvent(self, event): # This function runs when the window is closed ensuring everything is gracefully closed
         try:
             response = requests.post(base_api_url + 'logout', data={'userID': self.userID})
             response.raise_for_status()
             sio.disconnect()
             event.accept()
+            print("Logged out and disconnected")
         except Exception as e:
             self.handle_request_exception(e)
         finally:
@@ -437,3 +426,5 @@ loginwindow.show()
 
 chatWindow = MainWindow()
 sys.exit(app.exec())
+
+# could eat a sandwich right now.
